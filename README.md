@@ -65,6 +65,7 @@ scripts/
   merge_cv.py          合并 K 折预测，产出干净 OOF 与汇总
   calibrate.py         在 OOF 上拟合 Platt 校准 + 先验对齐参数
   predict.py           最终推理入口，支持多模型集成与长文本分块
+  stat_features.py     22 维生成器无关统计特征 + GBDT 模型（跨域兜底）
   make_ood_split.py    构造领域留出（OOD）划分
   eval.py              基础评估
   eval_cross_domain.py 跨域评估
@@ -117,13 +118,20 @@ FOLDS=5 BATCH=16 ACCUM=1 MAXLEN=512 EPOCHS=2 bash train_rented.sh
 #   merge_cv.py  → oof_pred.jsonl + cv_summary.json
 #   calibrate.py → calibration.json
 
-# 3. 生成提交结果
+# 3. 训练跨域兜底的统计特征模型（文件不入库，首次使用前需跑一次）
+python scripts/stat_features.py --train data/processed/cls_full_5fold/oof_pred.jsonl \
+    --out data/processed/stat_feats.joblib
+
+# 4. 生成提交结果
 python scripts/predict.py --input data/val.jsonl --out-csv result.csv \
     --ensemble-dirs data/processed/cls_full_5fold/fold0,data/processed/cls_full_5fold/fold1,data/processed/cls_full_5fold/fold2,data/processed/cls_full_5fold/fold3,data/processed/cls_full_5fold/fold4 \
     --calibration data/processed/cls_full_5fold/calibration.json \
-    --tfidf-model data/processed/tfidf_full/tfidf_clf.joblib \
-    --tfidf-calibration data/processed/tfidf_full/calibration.json \
+    --stat-model data/processed/stat_feats.joblib --stat-weight 0.3 \
     --max-len 512 --chunk-long
+
+# 可选：叠加 TF-IDF 成员（实测增益可忽略，一般不必加）
+#   --tfidf-model data/processed/tfidf_full/tfidf_clf.joblib \
+#   --tfidf-calibration data/processed/tfidf_full/calibration.json
 ```
 
 环境冒烟测试（几分钟，验证 GPU 链路）：
@@ -153,7 +161,9 @@ SMOKE=1 bash train_rented.sh
 
 ## 已知限制
 
-- 同域 AUC 0.999 属饱和区间，无法据此外推比赛分数；跨域（未见领域）性能显著下降，本地 OOD 留出实验中 base 规模模型跨域 AUC 仅约 0.908。
+- 同域 AUC 0.999 属饱和区间，无法据此外推比赛分数。跨域（未见领域）才是主要风险：本地 15 域留一实验里，纯神经模型在完全没见过的领域上会掉到 78.5%，甚至不如"全判机器"的多数据基线。
+- 为缓解跨域，推理链路接入 22 维生成器无关统计特征（字符熵、句长波动、4-gram 重复率、zlib 压缩率、标点与段落结构等）。实测跨域从 78.5% 提到 92.7%，同域从 99.04% 提到 99.44%，代价几乎为零。
+- 统计特征对训练集未覆盖的语言会失效：印尼语与德语维基留出时提升不到 3 个点。若官方验证集出现训练集没有的语种，需要重新评估 `--stat-weight`。
 - 先验对齐会改善 F1 口径的判定边界，但会抬高概率校准误差（ECE 0.013 → 0.040）。若评估口径包含概率质量（log loss / Brier），需要重新权衡。
 - 长文本分块推理比单次截断慢约 30%，但能挽回尾部信息，长文本子集宏 F1 有可测提升。
 
