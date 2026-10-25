@@ -1,0 +1,19 @@
+# 运行环境依赖（版本为本机实测通过的确切版本）
+# 硬件：NVIDIA RTX 5060 Laptop GPU (8GB), CUDA 12.8
+# 系统：Windows 11 + Python 3.12.10
+#
+# GPU 版 PyTorch 必须从 CUDA 12.8 索引安装，否则 RTX 5060 (Blackwell) 无法运行：
+#   pip install -r requirements.txt --index-url https://download.pytorch.org/whl/cu128
+#
+# 国内网络建议先设置镜像，否则下载 xlm-roberta-large 会超时：
+#   $env:HF_ENDPOINT="https://hf-mirror.com"
+
+torch==2.11.0
+transformers==5.20.1
+peft==0.21.2
+tokenizers==0.23.1
+safetensors==0.8.0
+sentencepiece==0.2.2
+scikit-learn==1.9.1
+scipy==1.18.1
+numpy==2.5.1
